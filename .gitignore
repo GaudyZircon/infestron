@@ -27,3 +27,8 @@
 *.exe
 *.out
 *.app
+MyBot
+
+# Other
+#
+*.zip
