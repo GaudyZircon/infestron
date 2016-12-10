@@ -152,6 +152,7 @@ int main() {
                                                 overkill = true;
                                             }
                                         }
+                                        if (attackSite.strength) continue; // never try to attack squares that are not actually on the border
                                         float strengthDiff = damage ? damage : 0.01f; // ensure the piece always attacks
                                         strengthDiff *= attackSite.production ? attackSite.production : 0.01f; // prevent having 0 diff if prod == 0, but count prod == 0 much lower than prod == 1
                                         if (!overkill && strengthDiff > 0) {
