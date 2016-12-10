@@ -34,16 +34,18 @@ int main() {
 
     std::unordered_map<hlt::Location, int> moves;
     std::vector<hlt::Location> borders;
-    std::vector<std::vector<unsigned char> > bordersPID;
     std::vector<unsigned int> borderWithEnemy;
 
+    std::unordered_map<hlt::Location, float> enemyBordersValue;
+
     //std::vector<std::vector<unsigned short> > postMovesStrength(map.height, std::vector<unsigned short>(map.width));
-    std::unordered_map<hlt::Location, unsigned int> postMovesStrength;
+    std::unordered_map<hlt::Location, int> postMovesStrength;
 
     while (true) {
         moves.clear();
         borders.clear();
         borderWithEnemy.clear();
+        enemyBordersValue.clear();
         postMovesStrength.clear();
 
         getFrame(map);
@@ -62,12 +64,19 @@ int main() {
                                 borders.emplace_back(x, y);
                                 isBorder = true;
                                 borderWithEnemy.push_back(neighbor.strength == 0 ? 1 : 0);
-                            }
-                            else {
+                            } else {
                                 if (neighbor.strength == 0) {
                                     borderWithEnemy.back()++;
                                 }
                             }
+                        }
+                    }
+                } else {
+                    for (const auto d : CARDINALS) {
+                        const hlt::Site& neighbor = map.getSite({x, y}, d);
+                        if (neighbor.owner == myID) {
+                            enemyBordersValue[{x,y}] = s.strength ? 1.f * s.production / s.strength : s.production * 3.f;
+                            break;
                         }
                     }
                 }
@@ -89,7 +98,11 @@ int main() {
                 if (map.getSite(loc).owner == myID) {
 
                     unsigned int myStrength = site.strength;
-                   
+                    if (myStrength == 0) {
+                        moves.emplace(loc, STILL);
+                        postMovesStrength[loc] += site.production;
+                    }
+
 
                     // attack
                     auto itBorder = std::find(borders.begin(), borders.end(), loc);
@@ -97,10 +110,10 @@ int main() {
                     {
                         // should try to attack or reinforce other borders?
                         std::size_t id = std::distance(borders.begin(), itBorder);
-                        bool shouldAttack = borderWithEnemy[id];
+                        bool attackEnemy = borderWithEnemy[id];
                         int attackDirection = STILL;
                         
-                        if (!shouldAttack && site.strength > site.production * 10) {
+                        if (!attackEnemy && site.strength > site.production * 10) { // TODO call reinforcement code
                             hlt::Location bestBorderLoc;
                             unsigned int minDist = std::numeric_limits<unsigned int>::max();
                             for (std::size_t i = 0; i < borders.size(); ++i) {
@@ -122,40 +135,54 @@ int main() {
                         
                         if (attackDirection == STILL) {
                             // find best direction to attack
-                            float strenghtFactor = .67f;
-                            if (strenghtFactor*myStrength >= 255) strenghtFactor = 1.f;
-
-                            float maxStrengthDiff = -std::numeric_limits<float>::max();
-                            bool overkill = false;
-                            for (auto d : CARDINALS) {
-                                const hlt::Location attackLoc = map.getLocation(loc, d);
-                                const hlt::Site& attackSite = map.getSite(attackLoc);
-                                if (attackSite.owner != myID) {
-                                    float requiredStrength = attackSite.owner != 0 ? myStrength*strenghtFactor : myStrength;
-                                    unsigned int damage = map.computeMoveDamage(loc, attackLoc);
-                                    if (damage > myStrength) {
-                                        if (!overkill) maxStrengthDiff = 0;
-                                        float diff = (damage - myStrength);// * attackSite.production;
-                                        if (diff > maxStrengthDiff) {
-                                            maxStrengthDiff = diff;
-                                            attackDirection = d;
-                                            overkill = true;
+                            if (attackEnemy) {
+                                float maxStrengthDiff = -std::numeric_limits<float>::max();
+                                bool overkill = false;
+                                for (auto d : CARDINALS) {
+                                    const hlt::Location attackLoc = map.getLocation(loc, d);
+                                    const hlt::Site& attackSite = map.getSite(attackLoc);
+                                    if (attackSite.owner != myID) {
+                                        unsigned int damage = map.computeMoveDamage(loc, attackLoc);
+                                        if (damage > myStrength) {
+                                            if (!overkill) maxStrengthDiff = 0;
+                                            float diff = (damage - myStrength);// * attackSite.production;
+                                            if (diff > maxStrengthDiff) {
+                                                maxStrengthDiff = diff;
+                                                attackDirection = d;
+                                                overkill = true;
+                                            }
                                         }
-                                    }
-                                    float strengthDiff = damage;
-                                    if (site.strength && !damage) strengthDiff += 0.01f; // ensure the piece always attacks if it has some strength
-                                    if (attackSite.strength) strengthDiff = (requiredStrength - attackSite.strength);
-                                    strengthDiff *= attackSite.production ? attackSite.production : 0.01f; // prevent having 0 diff if prod == 0, but count prod == 0 much lower than prod == 1
-                                    if (!overkill && strengthDiff > 0) {
-                                        if (strengthDiff > maxStrengthDiff)
-                                        {
-                                            maxStrengthDiff = strengthDiff;
-                                            attackDirection = d;
+                                        float strengthDiff = damage ? damage : 0.01f; // ensure the piece always attacks
+                                        strengthDiff *= attackSite.production ? attackSite.production : 0.01f; // prevent having 0 diff if prod == 0, but count prod == 0 much lower than prod == 1
+                                        if (!overkill && strengthDiff > 0) {
+                                            if (strengthDiff > maxStrengthDiff)
+                                            {
+                                                maxStrengthDiff = strengthDiff;
+                                                attackDirection = d;
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                float maxAttackValue = -std::numeric_limits<float>::max();
+                                unsigned int attackStrengthRequired = std::numeric_limits<unsigned int>::max();
+                                for (auto d : CARDINALS) {
+                                    const hlt::Location attackLoc = map.getLocation(loc, d);
+                                    const hlt::Site& attackSite = map.getSite(attackLoc);
+                                    if (attackSite.owner != 0) continue;
+                                    const float attackValue = enemyBordersValue[attackLoc];
+                                    if (attackValue > maxAttackValue) {
+                                        maxAttackValue = attackValue;
+                                        attackDirection = d;
+                                        attackStrengthRequired = attackSite.strength;
+                                    }
+                                }
+                                if (myStrength <= attackStrengthRequired) {
+                                    attackDirection = STILL; // wait until enough strength accumulated to attack
+                                }
                             }
                         }
+
                         if (attackDirection == STILL) {
                             moves.emplace(loc, STILL);
                             postMovesStrength[loc] += site.production;
@@ -238,7 +265,7 @@ int main() {
             hlt::Location curLoc = move.first, nextLoc = map.getLocation(move.first, dir);
             hlt::Site curSite = map.getSite(curLoc), nextSite = map.getSite(nextLoc);
             std::size_t nbIter = 0;
-            while (nextSite.owner == myID && moves[nextLoc] == STILL && curSite.strength + nextSite.strength > 255 && nbIter < 1000) {
+            while (nextSite.owner == myID && moves[nextLoc] == STILL && curSite.strength + nextSite.strength > 255 && nbIter < 100) {
                 moves[nextLoc] = dir;
                 curLoc = nextLoc;
                 nextLoc = map.getLocation(nextLoc, dir);
