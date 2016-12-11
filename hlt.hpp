@@ -162,13 +162,13 @@ namespace hlt{
                 return contents[l.y][l.x];
             }
 
-            unsigned int computeMoveDamage(Location src, Location dst) const {
+            unsigned int computeMoveDamage(Location src, Location dst, bool includeNeutralDamage = true) const {
                 const Site& srcSite = getSite(src);
                 const Site& dstSite = getSite(dst);
 
                 if (srcSite.owner == dstSite.owner) return 0;
 
-                unsigned int damage = std::min(srcSite.strength, dstSite.strength);
+                unsigned int damage = includeNeutralDamage || dstSite.owner != 0 ? std::min(srcSite.strength, dstSite.strength) : 0u;
 
                 for (const auto d : CARDINALS) {
                     const Site& s = getSite(dst, d);

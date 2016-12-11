@@ -142,20 +142,19 @@ int main() {
                                     const hlt::Location attackLoc = map.getLocation(loc, d);
                                     const hlt::Site& attackSite = map.getSite(attackLoc);
                                     if (attackSite.owner != myID) {
-                                        unsigned int damage = map.computeMoveDamage(loc, attackLoc);
+                                        unsigned int damage = map.computeMoveDamage(loc, attackLoc, false);
                                         if (damage > myStrength) {
-                                            if (!overkill) maxStrengthDiff = 0;
-                                            float diff = (damage - myStrength);// * attackSite.production;
-                                            if (diff > maxStrengthDiff) {
-                                                maxStrengthDiff = diff;
+                                            float strengthDiff = float(damage) - myStrength;// * attackSite.production;
+                                            if (!overkill || strengthDiff > maxStrengthDiff) {
+                                                maxStrengthDiff = strengthDiff;
                                                 attackDirection = d;
                                                 overkill = true;
                                             }
                                         }
-                                        if (attackSite.strength) continue; // never try to attack squares that are not actually on the border
-                                        float strengthDiff = damage ? damage : 0.01f; // ensure the piece always attacks
-                                        strengthDiff *= attackSite.production ? attackSite.production : 0.01f; // prevent having 0 diff if prod == 0, but count prod == 0 much lower than prod == 1
-                                        if (!overkill && strengthDiff > 0) {
+                                        if (!overkill) {
+                                            if (attackSite.strength) continue; // never try to attack squares that are not actually on the border
+                                            float strengthDiff = damage ? damage : 0.01f; // ensure the piece always attacks
+                                            strengthDiff *= attackSite.production ? attackSite.production : 0.01f; // prevent having 0 diff if prod == 0, but count prod == 0 much lower than prod == 1
                                             if (strengthDiff > maxStrengthDiff)
                                             {
                                                 maxStrengthDiff = strengthDiff;
