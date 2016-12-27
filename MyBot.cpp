@@ -10,10 +10,6 @@
 #include "networking.hpp"
 
 
-/*void addMove(std::unordered_map<hlt::Location, int>& moves, std::vector<std::vector<unsigned short> >) {
-    
-}*/
-
 int main() {
     srand(time(NULL));
 
@@ -33,18 +29,22 @@ int main() {
     sendInit("Infestron");
 
     std::unordered_map<hlt::Location, int> moves;
+
     std::vector<hlt::Location> borders;
     std::vector<unsigned int> borderWithEnemy;
 
+    std::unordered_map<hlt::Location, float> borderAttackValue;
     std::unordered_map<hlt::Location, float> enemyBordersValue;
 
-    //std::vector<std::vector<unsigned short> > postMovesStrength(map.height, std::vector<unsigned short>(map.width));
     std::unordered_map<hlt::Location, int> postMovesStrength;
+
+    //std::unordered_map<hlt::Location, std::vector<hlt::Location> > possibleMoves;
 
     while (true) {
         moves.clear();
         borders.clear();
         borderWithEnemy.clear();
+        borderAttackValue.clear();
         enemyBordersValue.clear();
         postMovesStrength.clear();
 
@@ -72,11 +72,17 @@ int main() {
                         }
                     }
                 } else {
+                    bool isEnemyBorder = false;
                     for (const auto d : CARDINALS) {
-                        const hlt::Site& neighbor = map.getSite({x, y}, d);
-                        if (neighbor.owner == myID) {
-                            enemyBordersValue[{x,y}] = s.strength ? 1.f * s.production / s.strength : s.production * 3.f;
-                            break;
+                        const hlt::Location neighborLoc = map.getLocation({x, y}, d);
+                        const hlt::Site& neighborSite = map.getSite(neighborLoc);
+                        if (neighborSite.owner == myID) {
+                            float value = s.strength ? 1.f * s.production / s.strength : s.production * 3.f;
+                            if (!isEnemyBorder) {
+                                enemyBordersValue[{x,y}] = value;
+                                isEnemyBorder = true;
+                            }
+                            borderAttackValue[neighborLoc] = std::max(borderAttackValue[neighborLoc], value);
                         }
                     }
                 }
@@ -113,22 +119,27 @@ int main() {
                         bool attackEnemy = borderWithEnemy[id];
                         int attackDirection = STILL;
                         
-                        if (!attackEnemy && site.strength > site.production * 10) { // TODO call reinforcement code
+                        if (!attackEnemy) { // TODO call reinforcement code
+                            // find best border by attack value
                             hlt::Location bestBorderLoc;
-                            unsigned int minDist = std::numeric_limits<unsigned int>::max();
+                            float maxAttackValue = 0.f;
                             for (std::size_t i = 0; i < borders.size(); ++i) {
-                                if (i == id) continue;
-                                if (borderWithEnemy[i]) {
-                                    const hlt::Location l = borders[i];
-                                    unsigned int dist = map.getDistance(loc, l);
-                                    if (dist < minDist) {
-                                        minDist = dist;
-                                        bestBorderLoc = l;
-                                    }
-                                }
+                                const hlt::Location l = borders[i];
+                                unsigned int dist = map.getDistance(loc, l);
+                                float attackValue = dist ? borderAttackValue[l] / dist : borderAttackValue[l];
+                                if (dist <= 5 && attackValue > maxAttackValue) { // TODO: change dist condition to sum of prod on the way
+                                    bestBorderLoc = l;
+                                    maxAttackValue = attackValue;
+                                } 
                             }
-                            if (minDist <= 5) {
-                                unsigned int d = map.getDirection(loc, bestBorderLoc);
+
+                            if (maxAttackValue > 0.f) {
+                                if (site.strength < site.production * 5) {
+                                    moves.emplace(loc, STILL);
+                                    postMovesStrength[loc] += site.production;
+                                    continue;
+                                }
+                                int d = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
                                 attackDirection = d;
                             }
                         }
@@ -216,8 +227,9 @@ int main() {
                     for (std::size_t i = 0; i < borders.size(); ++i) {
                         const hlt::Location l = borders[i];
                         unsigned int dist = map.getDistance(loc, l);
-                        float val = myStrength < 200 ? 1.f * map.getSite(l).production / dist : 1.f / dist;
-                        if (borderWithEnemy[i]) val *= 3.f;
+                        //float val = myStrength < 200 ? 1.f * map.getSite(l).production / dist : 1.f / dist;
+                        //if (borderWithEnemy[i]) val *= 3.f;
+                        float val = borderAttackValue[l] / dist;
                         if (val > bestBorderValue) {
                             bestBorderValue = val;
                             bestBorderLoc = l;
