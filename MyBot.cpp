@@ -141,6 +141,13 @@ int main() {
                                 }
                                 int d = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
                                 attackDirection = d;
+
+                                if (attackDirection != STILL) {
+                                    const hlt::Location attackLoc = map.getLocation(loc, attackDirection);
+                                    if (myStrength + postMovesStrength[attackLoc] > 255) { // prefer attacking instead of loosing strength
+                                        attackDirection = STILL;
+                                    }
+                                }
                             }
                         }
                         
@@ -199,7 +206,7 @@ int main() {
                             postMovesStrength[loc] += site.production;
                         } else {
                             const hlt::Location attackLoc = map.getLocation(loc, attackDirection);
-                            if (myStrength + site.production <= 255 && myStrength + postMovesStrength[attackLoc] > 255) {
+                            if (myStrength + postMovesStrength[attackLoc] > 255 && (myStrength + site.production <= 255 || site.production < postMovesStrength[attackLoc])) {
                                 moves.emplace(loc, STILL);
                                 postMovesStrength[loc] += site.production;
                             } else {
@@ -239,12 +246,14 @@ int main() {
                     std::pair<int,int> directions = map.getDirections(loc, bestBorderLoc);
                     unsigned char d = directions.first;
                     hlt::Location nextLoc = map.getLocation(loc, d);
+                    hlt::Site nextSite = map.getSite(nextLoc);
                     // avoid loosing strength
                     if (myStrength + postMovesStrength[nextLoc] > 255) {
                         unsigned char d2 = directions.second;
                         if (d2 != STILL) {
                             nextLoc = map.getLocation(loc, d2);
-                            if (myStrength + site.production <= 255 && myStrength + postMovesStrength[nextLoc] > 255) {
+                            nextSite = map.getSite(nextLoc);
+                            if (myStrength + postMovesStrength[nextLoc] > 255 && (myStrength + site.production <= 255 || site.production < postMovesStrength[nextLoc] - nextSite.strength)) {
                                 moves.emplace(loc, STILL);
                                 postMovesStrength[loc] += site.production;
                             } else {
@@ -252,7 +261,7 @@ int main() {
                                 postMovesStrength[nextLoc] += myStrength;
                             }
                         } else {
-                            if (myStrength + site.production <= 255) {
+                            if (myStrength + site.production <= 255 || site.production < postMovesStrength[nextLoc] - nextSite.strength) {
                                 moves.emplace(loc, STILL);
                                 postMovesStrength[loc] += site.production;
                             } else {
@@ -271,6 +280,7 @@ int main() {
 
 
         // force push blocking pieces forward
+        // TODO: take into account pushing coming from the side
         for (std::pair<const hlt::Location, int>& move : moves) {
             int dir = move.second;
             if (dir == STILL) continue;
