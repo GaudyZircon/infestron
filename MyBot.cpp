@@ -134,15 +134,15 @@ int main() {
                             }
 
                             if (maxAttackValue > 0.f) {
-                                if (site.strength < site.production * 5) {
-                                    moves.emplace(loc, STILL);
-                                    postMovesStrength[loc] += site.production;
-                                    continue;
-                                }
                                 int d = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
                                 attackDirection = d;
 
                                 if (attackDirection != STILL) {
+                                    if (site.strength < site.production * 5) {
+                                        moves.emplace(loc, STILL);
+                                        postMovesStrength[loc] += site.production;
+                                        continue;
+                                    }
                                     const hlt::Location attackLoc = map.getLocation(loc, attackDirection);
                                     if (myStrength + postMovesStrength[attackLoc] > 255) { // prefer attacking instead of loosing strength
                                         attackDirection = STILL;
