@@ -73,6 +73,7 @@ int main() {
                     }
                 } else {
                     bool isEnemyBorder = false;
+                    //bool isNearEnemy = false;
                     for (const auto d : CARDINALS) {
                         const hlt::Location neighborLoc = map.getLocation({x, y}, d);
                         const hlt::Site& neighborSite = map.getSite(neighborLoc);
@@ -83,7 +84,21 @@ int main() {
                                 isEnemyBorder = true;
                             }
                             borderAttackValue[neighborLoc] = std::max(borderAttackValue[neighborLoc], value);
+                        }/* else if (neighborSite.owner > 0 || neighborSite.strength == 0) {
+                            isNearEnemy = true;
                         }
+                    }
+                    if (isEnemyBorder) {
+                        if (s.owner == 0 && s.strength > 0 && isNearEnemy) {
+                           enemyBordersValue[{x,y}] = 0.f;
+                       }
+                       for (const auto d : CARDINALS) {
+                           const hlt::Location neighborLoc = map.getLocation({x, y}, d);
+                           const hlt::Site& neighborSite = map.getSite(neighborLoc);
+                           if (neighborSite.owner == myID) {
+                                borderAttackValue[neighborLoc] = std::max(borderAttackValue[neighborLoc], enemyBordersValue[{x,y}]);
+                            }
+                       }*/
                     }
                 }
 
