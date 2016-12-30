@@ -135,7 +135,8 @@ namespace hlt{
                 // TODO: real pathfinding
                 std::pair<int,int> dirs = getDirections(l1, l2);
                 if (getSite(l1, dirs.first).owner == myID) return dirs.first;
-                return dirs.second;
+                if (getSite(l1, dirs.second).owner == myID) return dirs.second;
+                return STILL;
             }
 
             Location getLocation(Location l, unsigned char direction) const {
