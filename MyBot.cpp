@@ -153,7 +153,7 @@ int main() {
                                 attackDirection = d;
 
                                 if (attackDirection != STILL) {
-                                    if (site.strength < site.production * 5) {
+                                    if (site.strength < 20 || site.strength < site.production * 5) {
                                         moves.emplace(loc, STILL);
                                         postMovesStrength[loc] += site.production;
                                         continue;
@@ -235,7 +235,7 @@ int main() {
 
 
                     // grow
-                    if (myStrength < site.production * 5) {
+                    if (site.strength < 20 || myStrength < site.production * 5) {
                         moves.emplace(loc, STILL);
                         postMovesStrength[loc] += site.production;
                         continue;
