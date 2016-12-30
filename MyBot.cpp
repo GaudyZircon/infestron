@@ -78,7 +78,7 @@ int main() {
                         const hlt::Location neighborLoc = map.getLocation({x, y}, d);
                         const hlt::Site& neighborSite = map.getSite(neighborLoc);
                         if (neighborSite.owner == myID) {
-                            float value = s.strength ? 1.f * s.production / s.strength : s.production * 3.f;
+                            float value = s.strength ? 1.f * s.production / s.strength : 1.f * s.production;
                             if (!isEnemyBorder) {
                                 enemyBordersValue[{x,y}] = value;
                                 isEnemyBorder = true;
@@ -125,7 +125,7 @@ int main() {
                     }
 
 
-                    // attack
+                    // handle borders
                     auto itBorder = std::find(borders.begin(), borders.end(), loc);
                     if (itBorder != borders.end())
                     {
@@ -134,33 +134,27 @@ int main() {
                         bool attackEnemy = borderWithEnemy[id];
                         int attackDirection = STILL;
                         
-                        if (!attackEnemy) { // TODO call reinforcement code
+                        if (!attackEnemy) { // TODO factorize with reinforcement code
                             // find best border by attack value
                             hlt::Location bestBorderLoc;
                             float maxAttackValue = 0.f;
                             for (std::size_t i = 0; i < borders.size(); ++i) {
                                 const hlt::Location l = borders[i];
                                 unsigned int dist = map.getDistance(loc, l);
-                                float attackValue = dist ? borderAttackValue[l] / dist : borderAttackValue[l];
-                                if (dist <= 5 && attackValue > maxAttackValue) { // TODO: change dist condition to sum of prod on the way
+                                float attackValue = dist ? borderAttackValue[l] / dist : borderAttackValue[l] * 1.1f; // TODO: change dist to sum of prod on the way
+                                if (attackValue > maxAttackValue) {
                                     bestBorderLoc = l;
                                     maxAttackValue = attackValue;
                                 } 
                             }
 
                             if (maxAttackValue > 0.f) {
-                                int d = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
-                                attackDirection = d;
-
+                                attackDirection = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
                                 if (attackDirection != STILL) {
                                     if (site.strength < 20 || site.strength < site.production * 5) {
                                         moves.emplace(loc, STILL);
                                         postMovesStrength[loc] += site.production;
                                         continue;
-                                    }
-                                    const hlt::Location attackLoc = map.getLocation(loc, attackDirection);
-                                    if (myStrength + postMovesStrength[attackLoc] > 255) { // prefer attacking instead of loosing strength
-                                        attackDirection = STILL;
                                     }
                                 }
                             }
@@ -203,7 +197,8 @@ int main() {
                                     const hlt::Location attackLoc = map.getLocation(loc, d);
                                     const hlt::Site& attackSite = map.getSite(attackLoc);
                                     if (attackSite.owner != 0) continue;
-                                    const float attackValue = enemyBordersValue[attackLoc];
+                                    float attackValue = enemyBordersValue[attackLoc];
+                                    //if (postMovesStrength[attackLoc] > 0) attackValue = 0; // prefer attacking elsewhere if site already under attack
                                     if (attackValue > maxAttackValue) {
                                         maxAttackValue = attackValue;
                                         attackDirection = d;
@@ -221,7 +216,8 @@ int main() {
                             postMovesStrength[loc] += site.production;
                         } else {
                             const hlt::Location attackLoc = map.getLocation(loc, attackDirection);
-                            if (myStrength + postMovesStrength[attackLoc] > 255 && (myStrength + site.production <= 255 || site.production < postMovesStrength[attackLoc])) {
+                            const hlt::Site& attackSite = map.getSite(attackLoc);
+                            if (myStrength + postMovesStrength[attackLoc] > 255 && (myStrength + site.production <= 255 || site.production < postMovesStrength[attackLoc] - attackSite.strength)) {
                                 moves.emplace(loc, STILL);
                                 postMovesStrength[loc] += site.production;
                             } else {
