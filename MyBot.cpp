@@ -78,7 +78,7 @@ int main() {
                         const hlt::Location neighborLoc = map.getLocation({x, y}, d);
                         const hlt::Site& neighborSite = map.getSite(neighborLoc);
                         if (neighborSite.owner == myID) {
-                            float value = s.strength ? 1.f * s.production / s.strength : 1.f * s.production;
+                            float value = s.strength ? 1.f * s.production / s.strength : 0.2f * s.production;
                             if (!isEnemyBorder) {
                                 enemyBordersValue[{x,y}] = value;
                                 isEnemyBorder = true;
@@ -151,7 +151,7 @@ int main() {
                             if (maxAttackValue > 0.f) {
                                 attackDirection = map.getDirectionInMyTerritory(loc, bestBorderLoc, myID);
                                 if (attackDirection != STILL) {
-                                    if (site.strength < 20 || site.strength < site.production * 5) {
+                                    if (site.strength < site.production * 5) {
                                         moves.emplace(loc, STILL);
                                         postMovesStrength[loc] += site.production;
                                         continue;
