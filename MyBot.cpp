@@ -177,7 +177,7 @@ int main() {
                                     if (attackSite.owner != myID) {
                                         unsigned int damage = map.computeMoveDamage(loc, attackLoc, false);
                                         if (damage > myStrength) {
-                                            float strengthDiff = float(damage) - myStrength;// * attackSite.production;
+                                            float strengthDiff = float(damage) - myStrength;
                                             if (!overkill || strengthDiff > maxStrengthDiff) {
                                                 maxStrengthDiff = strengthDiff;
                                                 attackDirection = d;
