@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <iterator>
 #include <fstream>
@@ -40,7 +41,10 @@ int main() {
 
     //std::unordered_map<hlt::Location, std::vector<hlt::Location> > possibleMoves;
 
+    unsigned int turnNr = 0u;
     while (true) {
+        //logfile << "TURN " << turnNr << std::endl;
+
         moves.clear();
         borders.clear();
         borderWithEnemy.clear();
@@ -110,7 +114,153 @@ int main() {
             //logfile << std::endl;
         }
 
-        // move
+
+
+
+        std::unordered_map<hlt::Location, hlt::Location> affectations;
+
+        if (!std::any_of(borderWithEnemy.begin(), borderWithEnemy.end(), [](unsigned int i){return i > 0;})) { // switch algo when enemy bot found
+
+            /////////////////////////////
+            // AFFECT CELLS TO BORDERS //
+            /////////////////////////////
+
+            // This is done by checking next ring of sites after next ring of sites (in the bot territory) around each border
+            // The borders are processed in order of their respective values
+            // A border can steal a site from another one if its value is higher
+
+            std::vector<std::pair<float, hlt::Location> > sortedBordersByValue;
+            for (const std::pair<hlt::Location, float>& bav : enemyBordersValue) {
+                sortedBordersByValue.emplace_back(bav.second, bav.first);
+            }
+            std::sort(sortedBordersByValue.begin(), sortedBordersByValue.end(), [](const std::pair<float, hlt::Location>& p1, const std::pair<float, hlt::Location>& p2) {return p1.first > p2.first;});
+            /*logfile << "sortedBordersByValue=";
+            for (const auto&p : sortedBordersByValue) {
+                logfile << p.first << "/" << p.second << " ";
+            }
+            logfile << std::endl;*/
+
+            std::unordered_map<hlt::Location, unsigned int> bordersTaken; // stores the left-over strength when a border is taken so it can be used for other borders
+
+            struct BorderStatus {
+                std::vector<hlt::Location> nextLocsToVisit;
+                std::set<hlt::Location> seenLocs;
+                unsigned int requiredStrength;
+                unsigned int affectedStrength;
+                unsigned int affectedProduction;
+            };
+
+            std::unordered_map<hlt::Location, BorderStatus> bordersStats;
+            for (const std::pair<float, hlt::Location>& sbv : sortedBordersByValue) {
+                const hlt::Location bLoc = sbv.second;
+                BorderStatus& bs = bordersStats[bLoc];
+                const hlt::Site& b =  map.getSite(bLoc);
+                bs.requiredStrength = b.strength ? b.strength : 255u;
+                bs.nextLocsToVisit.push_back(bLoc);
+            }
+
+            unsigned int nProp = 0; // max distance to affect (prevents spending too much time for neglible improvment
+            std::size_t borderIndexStart = 0; // borders indices lower than this have already enough strength or can't find more
+            while (nProp < 10 && borderIndexStart < sortedBordersByValue.size()) {
+                for (std::size_t bavi = borderIndexStart; bavi < sortedBordersByValue.size(); ++bavi) {
+                    const std::pair<float, hlt::Location>& bav = sortedBordersByValue[bavi];
+                    BorderStatus& bs = bordersStats[bav.second];
+
+                    if (bs.affectedStrength > bs.requiredStrength) continue;
+
+                    std::vector<hlt::Location> curBordersToAttack = {bav.second};
+                    std::vector<hlt::Location> nextBordersToAttack;
+
+                    std::vector<hlt::Location> neighborLocs;
+                    neighborLocs.reserve(3 * bs.nextLocsToVisit.size()); // reserve worst case
+
+                    for (hlt::Location loc : bs.nextLocsToVisit) {
+                        for (auto d : CARDINALS) {
+                            const hlt::Location nextLoc = map.getLocation(loc, d);
+                            const hlt::Site& nextSite = map.getSite(nextLoc);
+                            if ((nextSite.owner == myID || bordersTaken.find(nextLoc) != bordersTaken.end()) && bs.seenLocs.find(nextLoc) == bs.seenLocs.end()) { // TODO use strength from borders already taken
+                                neighborLocs.push_back(nextLoc);
+                            }
+                        }
+                    }
+                    std::swap(bs.nextLocsToVisit, neighborLocs);
+
+                    for (hlt::Location nextLoc : bs.nextLocsToVisit) {
+                        // TODO should we already sum production to affectedStrength in this loop?
+                        if (affectations.find(nextLoc) == affectations.end()) {
+                            const hlt::Site& nextSite = map.getSite(nextLoc);
+                            unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc] : nextSite.strength;
+                            bs.affectedStrength += nextSiteStrength;
+                            bs.affectedProduction += nextSite.production;
+                            affectations.emplace(nextLoc, bav.second);
+                            // TODO: store move nextLoc -> curLoc
+                            //logfile << "affectation! " << nextLoc << "->" << bav.second << std::endl;
+                        } else {
+                            hlt::Location otherLoc = affectations[nextLoc];
+                            if (bav.first > enemyBordersValue[otherLoc]) {
+                                // steal from less valuable border
+                                const hlt::Site& nextSite = map.getSite(nextLoc);
+                                unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc] : nextSite.strength;
+                                bs.affectedStrength += nextSiteStrength;
+                                bs.affectedProduction += nextSite.production;
+                                BorderStatus& otherbs = bordersStats[otherLoc];
+                                otherbs.affectedStrength -= nextSite.strength;
+                                otherbs.affectedProduction -= nextSite.production;
+                                affectations[nextLoc] = bav.second;
+                                // TODO: store move nextLoc -> curLoc
+                                //logfile << "RE-affectation! " << nextLoc << "->" << bav.second << std::endl;
+                            }
+                        }
+                        bs.seenLocs.insert(nextLoc);
+                        if (bs.affectedStrength > bs.requiredStrength) break;
+                    }
+                    bs.affectedStrength += bs.affectedProduction;
+                    if (borderIndexStart == bavi && (bs.nextLocsToVisit.empty() || bs.affectedStrength > bs.requiredStrength)) ++borderIndexStart;
+                    if (bs.affectedStrength > bs.requiredStrength) {
+                        // set strength usable for other attacks
+                        bordersTaken.emplace(bav.second, bs.affectedStrength - bs.requiredStrength);
+                    }
+
+                    // TODO take new borders around taken border into account for next round of affectations
+                    /*if (bs.affectedStrength > bs.requiredStrength)  {
+                        for (hlt::Location border : curBordersToAttack) {
+                            for (auto d : CARDINALS) {
+                                const hlt::Location newLoc = map.getLocation(border, d);
+                                const hlt::Site& newSite = map.getSite(newLoc);
+                                if (newSite.owner == myID || enemyBordersValue.find(newLoc) != enemyBordersValue.end()) continue;
+                                float value = newSite.strength ? 1.f * newSite.production / newSite.strength : 20.f * newSite.production;
+                                if (newSite.owner != 0) value *= 20.f;
+
+                                if (value > sortedBordersByValue[borderIndexStart].first) {
+                                    enemyBordersValue[newLoc] = value; // TODO move up
+                                    unsigned int strengthToAdd = newSite.strength ? newSite.strength : 1024;
+                                    if (newSite.owner != 0) strengthToAdd = 255;
+                                    bs.requiredStrength += strengthToAdd;
+                                    nextBordersToAttack.push_back(newLoc);
+                                } else {
+                                    // TODO insert with sort in sortedBordersByValue after borderIndexStart
+                                }
+                            }
+                        }
+                    }
+                    std::swap(curBordersToAttack, nextBordersToAttack);
+                    nextBordersToAttack.clear();*/
+                }
+                ++nProp;
+            }
+
+            /*logfile << "affectations=";
+            for (const auto& a : affectations) {
+                logfile << a.first << "->" << a.second << " ; ";
+            }
+            logfile << std::endl;*/
+        }
+
+
+
+        //////////////////
+        // CREATE MOVES //
+        //////////////////
         for (unsigned short y = 0; y < map.height; y++) {
             for (unsigned short x = 0; x < map.width; x++) {
                 const hlt::Location loc {x, y};
@@ -119,9 +269,65 @@ int main() {
                 if (map.getSite(loc).owner == myID) {
 
                     unsigned int myStrength = site.strength;
+                    // never move sites with 0 strength
                     if (myStrength == 0) {
                         moves.emplace(loc, STILL);
                         postMovesStrength[loc] += site.production;
+                    }
+
+                    // handle affected sites first
+                    auto itAffect = affectations.find(loc);
+                    if (itAffect != affectations.end()) {
+                        bool canAttack = map.getDistance(loc, itAffect->second) == 1;
+
+                        if (canAttack) {
+                            if (site.strength > map.getSite(itAffect->second).strength) {
+                                moves.emplace(loc, map.getDirection(loc, itAffect->second));
+                                postMovesStrength[itAffect->second] += myStrength;
+                            } else {
+                                moves.emplace(loc, STILL);
+                                postMovesStrength[loc] += site.production;
+                            }
+                            continue;
+                        }
+
+                        if (myStrength < site.production * 5) {
+                            moves.emplace(loc, STILL);
+                            postMovesStrength[loc] += site.production;
+                            continue;
+                        }
+
+                        std::pair<int,int> directions = map.getDirectionsInMyTerritory(loc, itAffect->second, myID);
+                        unsigned char d = directions.first;
+                        hlt::Location nextLoc = map.getLocation(loc, d);
+                        hlt::Site nextSite = map.getSite(nextLoc);
+                        // avoid loosing strength
+                        if (myStrength + postMovesStrength[nextLoc] > 255) {
+                            unsigned char d2 = directions.second;
+                            if (d2 != STILL) {
+                                nextLoc = map.getLocation(loc, d2);
+                                nextSite = map.getSite(nextLoc);
+                                if (myStrength + postMovesStrength[nextLoc] > 255 && (myStrength + site.production <= 255 /*|| site.production < postMovesStrength[nextLoc] - nextSite.strength*/)) {
+                                    moves.emplace(loc, STILL);
+                                    postMovesStrength[loc] += site.production;
+                                } else {
+                                    moves.emplace(loc, d2);
+                                    postMovesStrength[nextLoc] += myStrength;
+                                }
+                            } else {
+                                if (0) {//myStrength + site.production <= 255 /*|| site.production < postMovesStrength[nextLoc] - nextSite.strength*/) {
+                                    moves.emplace(loc, STILL);
+                                    postMovesStrength[loc] += site.production;
+                                } else {
+                                    moves.emplace(loc, d);
+                                    postMovesStrength[nextLoc] += myStrength;
+                                }
+                            }
+                        } else {
+                            moves.emplace(loc, d);
+                            postMovesStrength[nextLoc] += myStrength;
+                        }
+                        continue;
                     }
 
 
@@ -312,6 +518,8 @@ int main() {
         std::copy(moves.begin(), moves.end(), std::ostream_iterator<hlt::Move>(logfile, " "));
         logfile << std::endl;*/
         sendFrame(moves);
+
+        ++turnNr;
     }
 
     return 0;
