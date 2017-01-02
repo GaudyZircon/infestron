@@ -32,3 +32,5 @@ MyBot
 # Other
 #
 *.zip
+*.hlt
+*.log
