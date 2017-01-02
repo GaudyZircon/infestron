@@ -138,6 +138,28 @@ namespace hlt{
                 if (getSite(l1, dirs.second).owner == myID) return dirs.second;
                 return STILL;
             }
+            std::pair<int,int> getDirectionsInMyTerritory(Location l1, Location l2, unsigned char myID) {
+                // TODO: real pathfinding
+                std::pair<int,int> dirs = getDirections(l1, l2);
+                const hlt::Site& s1 = getSite(l1, dirs.first);
+                bool d1OK = s1.owner == myID || s1.strength == 0;
+                const hlt::Site& s2 = getSite(l1, dirs.second);
+                bool d2OK = s2.owner == myID || s2.strength == 0;
+                if (d1OK) {
+                    if (d2OK) {
+                        return dirs;
+                    } else {
+                        return std::make_pair(dirs.first, STILL);
+                    }
+                } else {
+                    if (d2OK) {
+                        return std::make_pair(dirs.second, STILL);
+                    } else {
+                        //return std::make_pair(STILL, STILL);
+                        return dirs;
+                    }
+                }
+            }
 
             Location getLocation(Location l, unsigned char direction) const {
                 if(direction != STILL) {
