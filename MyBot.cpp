@@ -117,7 +117,16 @@ int main() {
 
 
 
-        std::unordered_map<hlt::Location, hlt::Location> affectations;
+        // stores:
+        // - the number of turns at which the site was affected to a border (in fact the distance to the border)
+        // - the affectation of a site to a border
+        std::unordered_map<hlt::Location, std::pair<unsigned int, hlt::Location> > affectations;
+
+        // stores:
+        // - the number of turns required to take the border
+        // - the left-over strength when a border is taken so it can be used for other borders
+        std::unordered_map<hlt::Location, std::pair<unsigned int, unsigned int> > bordersTaken;
+
 
         if (!std::any_of(borderWithEnemy.begin(), borderWithEnemy.end(), [](unsigned int i){return i > 0;})) { // switch algo when enemy bot found
 
@@ -134,13 +143,11 @@ int main() {
                 sortedBordersByValue.emplace_back(bav.second, bav.first);
             }
             std::sort(sortedBordersByValue.begin(), sortedBordersByValue.end(), [](const std::pair<float, hlt::Location>& p1, const std::pair<float, hlt::Location>& p2) {return p1.first > p2.first;});
-            /*logfile << "sortedBordersByValue=";
+            /*logfile << "sortedBordersByValue = ";
             for (const auto&p : sortedBordersByValue) {
                 logfile << p.first << "/" << p.second << " ";
             }
             logfile << std::endl;*/
-
-            std::unordered_map<hlt::Location, unsigned int> bordersTaken; // stores the left-over strength when a border is taken so it can be used for other borders
 
             struct BorderStatus {
                 std::vector<hlt::Location> nextLocsToVisit;
@@ -178,7 +185,8 @@ int main() {
                         for (auto d : CARDINALS) {
                             const hlt::Location nextLoc = map.getLocation(loc, d);
                             const hlt::Site& nextSite = map.getSite(nextLoc);
-                            if ((nextSite.owner == myID || bordersTaken.find(nextLoc) != bordersTaken.end()) && bs.seenLocs.find(nextLoc) == bs.seenLocs.end()) { // TODO use strength from borders already taken
+                            if ((nextSite.owner == myID || (bordersTaken.find(nextLoc) != bordersTaken.end() && bordersTaken[nextLoc].first < nProp))
+                                    && bs.seenLocs.find(nextLoc) == bs.seenLocs.end()) {
                                 neighborLocs.push_back(nextLoc);
                             }
                         }
@@ -187,39 +195,49 @@ int main() {
 
                     for (hlt::Location nextLoc : bs.nextLocsToVisit) {
                         // TODO should we already sum production to affectedStrength in this loop?
+                        // TODO should we order the neighbors to visit by their strength to reduce the number of affectations?
                         if (affectations.find(nextLoc) == affectations.end()) {
                             const hlt::Site& nextSite = map.getSite(nextLoc);
-                            unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc] : nextSite.strength;
+                            unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc].second : nextSite.strength;
                             bs.affectedStrength += nextSiteStrength;
                             bs.affectedProduction += nextSite.production;
-                            affectations.emplace(nextLoc, bav.second);
+                            affectations.emplace(nextLoc, std::make_pair(nProp, bav.second));
                             // TODO: store move nextLoc -> curLoc
-                            //logfile << "affectation! " << nextLoc << "->" << bav.second << std::endl;
+                            //logfile << "affectation! " << nextLoc << "->" << bav.second << ":" << nProp << std::endl;
                         } else {
-                            hlt::Location otherLoc = affectations[nextLoc];
-                            if (bav.first > enemyBordersValue[otherLoc]) {
+                            hlt::Location otherBorder = affectations[nextLoc].second;
+                            if (bav.first > enemyBordersValue[otherBorder]) {
                                 // steal from less valuable border
                                 const hlt::Site& nextSite = map.getSite(nextLoc);
-                                unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc] : nextSite.strength;
+                                unsigned int nextSiteStrength = bordersTaken.find(nextLoc) != bordersTaken.end() ? bordersTaken[nextLoc].second : nextSite.strength;
+                                unsigned int nTurnsAffectedToOtherBorder = nProp - affectations[nextLoc].first + 1;
                                 bs.affectedStrength += nextSiteStrength;
                                 bs.affectedProduction += nextSite.production;
-                                BorderStatus& otherbs = bordersStats[otherLoc];
-                                otherbs.affectedStrength -= nextSite.strength;
+                                BorderStatus& otherbs = bordersStats[otherBorder];
+                                otherbs.affectedStrength -= nextSiteStrength + (nTurnsAffectedToOtherBorder * nextSite.production);
                                 otherbs.affectedProduction -= nextSite.production;
-                                affectations[nextLoc] = bav.second;
+                                affectations[nextLoc] = std::make_pair(nProp, bav.second);
+                                if (otherbs.affectedStrength <= otherbs.requiredStrength) {
+                                    // remove from borders taken if strength is now insufficient
+                                    bordersTaken.erase(otherBorder);
+                                }
                                 // TODO: store move nextLoc -> curLoc
-                                //logfile << "RE-affectation! " << nextLoc << "->" << bav.second << std::endl;
+                                //logfile << "RE-affectation! " << nextLoc << "->" << bav.second << ":" << nProp << std::endl;
                             }
                         }
                         bs.seenLocs.insert(nextLoc);
                         if (bs.affectedStrength > bs.requiredStrength) break;
                     }
-                    bs.affectedStrength += bs.affectedProduction;
-                    if (borderIndexStart == bavi && (bs.nextLocsToVisit.empty() || bs.affectedStrength > bs.requiredStrength)) ++borderIndexStart;
-                    if (bs.affectedStrength > bs.requiredStrength) {
-                        // set strength usable for other attacks
-                        bordersTaken.emplace(bav.second, bs.affectedStrength - bs.requiredStrength);
+                    if (bs.affectedStrength > bs.requiredStrength) { // first check strength during current turn
+                        bordersTaken.emplace(bav.second, std::make_pair(nProp, bs.affectedStrength - bs.requiredStrength));
                     }
+                    bs.affectedStrength += bs.affectedProduction; // sum current turn production to next turn's strength
+                    if (bs.affectedStrength > bs.requiredStrength) { // then check for strength at the beginning of next turn
+                        bordersTaken.emplace(bav.second, std::make_pair(nProp+1, bs.affectedStrength - bs.requiredStrength));
+                    }
+
+                    // advance border index to start with in next loop iteration if current border has enough strength or if there no more locs to visit
+                    if (borderIndexStart == bavi && (bs.nextLocsToVisit.empty() || bs.affectedStrength > bs.requiredStrength)) ++borderIndexStart;
 
                     // TODO take new borders around taken border into account for next round of affectations
                     /*if (bs.affectedStrength > bs.requiredStrength)  {
@@ -249,9 +267,14 @@ int main() {
                 ++nProp;
             }
 
-            /*logfile << "affectations=";
+            /*logfile << "affectations = ";
             for (const auto& a : affectations) {
-                logfile << a.first << "->" << a.second << " ; ";
+                logfile << a.first << "->" << a.second.first << ":" << a.second.second << " ; ";
+            }
+            logfile << std::endl;*/
+            /*logfile << "bordersTaken = ";
+            for (const auto& bt : bordersTaken) {
+                logfile << bt.first << "->" << bt.second.first << ":" << bt.second.second << " ; ";
             }
             logfile << std::endl;*/
         }
@@ -278,26 +301,35 @@ int main() {
                     // handle affected sites first
                     auto itAffect = affectations.find(loc);
                     if (itAffect != affectations.end()) {
-                        bool canAttack = map.getDistance(loc, itAffect->second) == 1;
+                        hlt::Location borderLoc = itAffect->second.second;
+                        auto itBorderTaken = bordersTaken.find(borderLoc);
 
-                        if (canAttack) {
-                            if (site.strength > map.getSite(itAffect->second).strength) {
-                                moves.emplace(loc, map.getDirection(loc, itAffect->second));
-                                postMovesStrength[itAffect->second] += myStrength;
-                            } else {
+                        bool doMove = false;
+                        if (itBorderTaken != bordersTaken.end()) {
+                            unsigned int turnAffectation = itAffect->second.first;
+                            unsigned int turnBorderTaken = itBorderTaken->second.first;
+                            if (turnAffectation < turnBorderTaken) {
                                 moves.emplace(loc, STILL);
                                 postMovesStrength[loc] += site.production;
+                                continue;
                             }
-                            continue;
+                            if (turnAffectation == 0) {
+                                moves.emplace(loc, map.getDirection(loc, borderLoc));
+                                postMovesStrength[borderLoc] += myStrength;
+                            }
+                            // prefer wasting less production over expansion speed when the piece has to move more than a short distance
+                            if (turnAffectation < 3) {
+                                doMove = true;
+                            }
                         }
 
-                        if (myStrength < site.production * 5) {
+                        if (!doMove && myStrength < site.production * 5) {
                             moves.emplace(loc, STILL);
                             postMovesStrength[loc] += site.production;
                             continue;
                         }
 
-                        std::pair<int,int> directions = map.getDirectionsInMyTerritory(loc, itAffect->second, myID);
+                        std::pair<int,int> directions = map.getDirectionsInMyTerritory(loc, borderLoc, myID);
                         unsigned char d = directions.first;
                         hlt::Location nextLoc = map.getLocation(loc, d);
                         hlt::Site nextSite = map.getSite(nextLoc);
